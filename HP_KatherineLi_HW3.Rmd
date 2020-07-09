@@ -1,0 +1,1357 @@
+---
+title: "Harry Potter - An Analysis on the Moods"
+author: "Katherine Li"
+output: 
+  rmdformats::readthedown:
+    highlight: espresso
+    thumbnails: false
+    lightbox: true
+    gallery: false
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<style>
+.myimg{ width: 230%;
+        position: initial;
+        top: 38px;
+        margin-left: 1%;
+        margin-right: 8%;}
+</style>
+<a id ='intro'> <img class="myimg" src="https://github.com/katliyx/piccc/raw/master/hpintro.gif"> </a>
+
+# Introduction
+
+As the famous saying goes, "there are a thousand Hamlets in a thousand people's eyes", this project aims to inspect on this theory through the eyes of modern technology, what sentiment "reeks" of the text in the Harry Potter series by J.K.Rowling. <br>
+
+Questions to answer include, but are not limited to: *Does the sentiment analysis on single words tell the true story? How does sentiment change as readers (in this case, RStudio and certain lexicon packages) progress through the chapters in each book? If the sentiment is analyzed on a bigram basis, how does the overall result change? What about analyzing on a sentence basis?* <br>
+
+# Relevant Packages
+
+Packages used to faciliate this project include: ***rmdformats, wordcloud, devtools, tidyverse, stringr, tidytext, dplyr, ggraph, ggplot2, sentimentr, rmarkdown, lexicon, textdata, textstem, widyr, readr, tibble, NMF, fmsb, stm, tm***.
+
+```{r, warning=FALSE, message=FALSE}
+
+library(rmdformats)
+library(wordcloud)
+library(devtools)
+library(tidyverse)
+library(stringr)
+library(tidytext)
+library(dplyr)
+library(reshape2)
+library(igraph)
+library(ggraph)
+library(sentimentr)
+library(rmarkdown)
+library(lexicon)
+library(textdata)
+library(textstem)
+library(widyr)
+library(readr)
+library(tibble)
+library(NMF)
+library(fmsb)
+library(stm)
+library(tm)
+
+if (packageVersion("devtools") < 1.6) {
+  install.packages("devtools")
+}
+
+```
+
+# Data Source
+
+Data of this project is leveraged from a harrypotter package found on github. It contains text from the seven novels in the Happy Potter series written by J.K.Rowling, which are: <br>
+1. **philosophers_stone:** Harry Potter and The Philosopher's Stone *(1997)* <br>
+2. **chamber_of_secrets:** Harry Potter and The Chamber of Secrets *(1998)* <br>
+3. **prisoner_of_azkaban:** Harry Potter and The Prisoner of Azkaban *(1999)* <br>
+4. **goblet_of_fire:** Harry Potter and The Goblet of Fire *(2000)* <br>
+5. **order_of_the_phoenix:** Harry Potter and The Order of the Phoenix *(2003)* <br>
+6. **half_blood_prince:** Harry Potter and The Half Blood Prince *(2005)* <br>
+7. **deathly_hallows:** Harry Potter and The Deathly Hallows *(2007)* <br>
+
+```{r, warning=FALSE, message=FALSE}
+devtools::install_github("bradleyboehmke/harrypotter")
+library(harrypotter)
+
+titles <- c("Philosopher's Stone", "Chamber of Secrets", "Prisoner of Azkaban",
+            "Goblet of Fire", "Order of the Phoenix", "Half-Blood Prince",
+            "Deathly Hallows")
+books <- list(philosophers_stone, chamber_of_secrets, prisoner_of_azkaban,
+              goblet_of_fire, order_of_the_phoenix, half_blood_prince,
+              deathly_hallows)
+
+```
+
+# Data Preparation 
+
+This data is pretty clean in its nature, but since sentiment analysis is conducted, certain cleaning steps are taken to better prepare the dataset. 
+
+## Expected Words with High Frequency
+
+Words that are not necessarily considered as normal stop words but will surely showcase high frequency throughout the text include, but are not limited to: <br>
+**Main Characters**: *Harry Potter, Hermione Granger, Lord Voldemont, Draco Malfoy, Professor Severus Snape, Ron Weasley, Professor Albus Dumbledore, Dobby the House Elf, and etc.* -- you name it! <br> 
+**Hogwarts Houses**: *Gryffindor, Hufflepuff, Ravenclaw, Slytherin* <br>
+<br>
+And some other trivial but not so trivial stuff...<br>
+
+```{r, warning=FALSE, message=FALSE}
+
+# set up a new dataset in addition to the data "stop_words
+
+characterhp <- tibble(word = c(as.character(1:63),"harry", "potter", "professor", "hermione", "granger", "rubeus", "hagrid", "dudley", "dursley", "draco", "malfoy", "severus", "snape", "lord", "voldemort", "albus", "dumbledore", "sirius", "ron", "neville", "dobby", "lupin", "mcgonagall", "newt", "scamander", "grindelwald", "tina", "queenie", "jacob", "harry's", "hogwarts", "weasley", "george", "ginny", "gryffindor", "umbridge", "ron's", "ravenclaw", "slytherin", "hufflepuff", "dumbledore's", "hermione's", "slughorn", "hagrid's", "kreacher", "dementors", "petunia", "snape's", "voldemort's", "dursleys", "malfoy's", "pomfrey", "lockhart's", "riddle's", "gilderoy", "lockhart", "myrtle", "kwikspell", "slughorn's", "quirrell's", "quirrell", "	myrtle's", "umbridge's"))
+
+```
+
+## The Stop Words
+
+Of course, now a routine, to get rid of the stop words in the text. 
+
+```{r, warning=FALSE, message=FALSE}
+
+hp <- tibble()
+for(i in seq_along(titles)) {
+  
+  temp <- tibble(chapter = seq_along(books[[i]]),
+                  text = books[[i]]) %>%
+    unnest_tokens(word, text) %>%
+    mutate(book = titles[i]) %>%
+    select(book, everything()) %>%
+    anti_join(stop_words) %>%
+    anti_join(characterhp)
+  
+  hp <- rbind(hp, temp)
+}
+
+```
+
+## Order of the Books
+
+Since later on in this analysis, we're getting to the point to see how sentiments and moods have evolved as we progress through the chapters, making sure the books are listed in order is rather important. 
+```{r, warning=FALSE, message=FALSE}
+
+hp$book <- factor(hp$book, levels = rev(titles))
+
+```
+
+# A Word Cloud
+
+To start with... 
+
+```{r, warning=FALSE, message=FALSE}
+
+hp %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 170))
+
+```
+
+# Term Frequency
+
+Term frequency is a farily important concept to see the terms that frequently occur. Certain insights could be drawn from this result as if a word appears more often, it might have more leverage in impacting the final sentiment scores. 
+
+## Overall
+
+Start by getting a basic idea of the most frequently used words. *"Looked", "time", "wand" (undoubtedly) are among the top most frequent used words in all seven books.*
+
+```{r, warning=FALSE, message=FALSE}
+
+#count(hpTotal)
+
+hpTotal <- hp %>%
+  group_by(word) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+hpTotal$tfoverall <- hpTotal$count/23712
+
+rmarkdown::paged_table(hpTotal)
+  
+
+```
+
+## By Book
+
+Compute the term frequencies of words, show the result of the top 10 used words by book. *"Time", "looked", and "eyes" show up almost in all books.*
+
+```{r, warning = FALSE, message=FALSE}
+
+hp2 <- hp %>%
+  count(book, word, sort = TRUE)
+
+hpTF <- hp %>%
+#  group_by(book, word) %>%
+#  summarise(count = n())
+ # select(book, word) %>%
+  split(., .$book) %>%
+  lapply(., function(x) {
+    textTokens = tm::MC_tokenizer(x$word)
+    total = length(textTokens)
+  })
+
+temp <- unlist(hpTF)
+
+hpTF <- data.frame(book = c("Deathly Hallows", "Half-BLood Prince", "Order of the Phoenix", "Goblet of Fire", "Prisoner of Azkaban", "Chamber of Secrets", "Philosopher's Stone"), 
+                   total = temp)
+
+rownames(hpTF) <- NULL
+
+hpTF <- hp2 %>%
+  left_join(., hpTF, by = "book")
+
+hpTF$term_frequency <- hpTF$n/hpTF$total
+
+hpTFtop <- hpTF %>%
+  group_by(book) %>%
+  arrange(desc(term_frequency)) %>%
+  slice(1:10)
+
+rmarkdown::paged_table(hpTFtop)
+
+```
+
+# Term Frequency - Inverse Document Frequency (Unigrams)
+
+tf-idf shows how important a word is to a document. The importance increases proportionally to the number of times a word appears in the document but is offset by the frequency of the word in the corpus.
+
+## By Book
+
+Compute the tf-idf table by book. *The words deemed as "important" are more context-related.*
+
+```{r, warning=FALSE, message=FALSE}
+
+hpTFIDF <- hpTF %>%
+  tidytext::bind_tf_idf(word, book, n) %>%
+  arrange(desc(tf_idf)) %>%
+  select(-term_frequency)
+
+hpTFIDFtop <- hpTFIDF %>%
+  group_by(book) %>%
+  arrange(desc(tf_idf)) %>%
+  slice(1:10)
+
+rmarkdown::paged_table(hpTFIDFtop)
+
+```
+
+## Visualization
+
+```{r, warning=FALSE, message=FALSE}
+
+hpTFIDFtop %>%
+  ggplot(aes(x = reorder(word, tf_idf), y = tf_idf)) +
+  geom_col(aes(fill = book), position="identity", alpha=0.5, show.legend = FALSE) +
+  facet_wrap(~book, ncol = 3, scales = "free_y") +
+  labs(title = "Words with High tf-idf by Book", x = "Words", y = "tf-idf") +
+  coord_flip() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+# Bigrams
+
+Words should be viewed from a collective sense - because in the literature world, many words are meaningless if analyzed individually. Thus, it might provide more in-depth insight to see what word set are used most frequently. Investigating the bigrams might be a good start. <br>
+
+## Most Frequently Used 
+
+*The most frequently used bigrams are mostly context-related.*
+
+```{r, warning=FALSE, message=FALSE}
+
+hp2 <- tibble()
+for(i in seq_along(titles)) {
+  
+  temp <- tibble(chapter = seq_along(books[[i]]),
+                  text = books[[i]]) %>%
+    mutate(book = titles[i]) 
+  
+  hp2 <- rbind(hp2, temp)
+}
+
+
+hpBigram <- hp2 %>%
+  select(book, text) %>%
+  mutate(text = tolower(text)) %>%
+  mutate(text = lemmatize_strings(text)) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+hpBigram2 <- hpBigram %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+hpBigram3 <- hpBigram2 %>%
+  filter(!(word1 %in% stop_words$word)) %>% 
+  filter(!(word2 %in% stop_words$word)) %>%
+  filter(!(word1 %in% characterhp$word)) %>% 
+  filter(!(word2 %in% characterhp$word))
+
+hpBigramFinal <- hpBigram3 %>%
+  unite(bigram, word1, word2, sep = " ") %>%
+  count(bigram, sort = TRUE)
+
+rmarkdown::paged_table(hpBigramFinal)
+
+```
+
+# Term Frequency - Inverse Document Frequency (Bigrams)
+
+<br>
+
+## A Table 
+
+*From the tf-idf table below, we could see the top 10 most "important" bigrams by book. "Death eater" seems to be pretty important to four out of the seven books in the series, which echoes with it being the bigram with top presence when text from seven books is analyzed as a whole.*
+
+```{r, warning=FALSE, message=FALSE}
+
+hp3 <- tibble()
+for(i in seq_along(titles)) {
+  
+  temp <- tibble(chapter = seq_along(books[[i]]),
+                  text = books[[i]]) %>%
+    unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+    mutate(book = titles[i]) %>%
+    select(book, everything())
+  
+  hp3 <- rbind(hp3, temp)
+}
+
+hp3$book <- factor(hp3$book, levels = rev(titles))
+
+hp3 %>%
+  count(bigram, sort = TRUE)
+
+bigrams_separated <- hp3 %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigrams_filtered <- bigrams_separated %>%
+  filter(!(word1 %in% stop_words$word)) %>% 
+  filter(!(word2 %in% stop_words$word)) %>%
+  filter(!(word1 %in% characterhp$word)) %>% 
+  filter(!(word2 %in% characterhp$word))
+
+bigrams_united <- bigrams_filtered %>%
+  unite(bigram, word1, word2, sep = " ")
+bigrams_united %>% 
+    count(bigram, sort = TRUE)
+
+hp_bigram_tfidf <- bigrams_united %>%
+  count(book, bigram) %>%
+  bind_tf_idf(bigram, book, n) %>%
+  arrange(desc(tf_idf))
+
+hp_bigram_tfidf_top <- hp_bigram_tfidf %>%
+  group_by(book) %>%
+  arrange(desc(tf_idf)) %>%
+  slice(1:10)
+
+rmarkdown::paged_table(hp_bigram_tfidf_top)
+
+```
+
+## Visualization 
+
+*A visualization of the bigrams with the top tf-idf's, break down by book in color.*
+
+```{r, warning=FALSE, message=FALSE}
+
+tfidf_plot <- hp_bigram_tfidf %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(bigram = factor(bigram, levels = rev(unique(bigram))))
+
+tfidf_plot %>% 
+  top_n(30) %>%
+  ggplot(aes(bigram, tf_idf, fill = book)) +
+  geom_col() +
+  labs(x = NULL, y = "tf-idf", title = "Bigrams with Top tf-idf's", subtitle = "by book") +
+  coord_flip() +
+  scale_fill_manual(labels = c("Deathly Hallows", "Half-Blood Prince", "Order of the Phoenix", "Goblet of Fire", "Prisoner of Azkaban", "Chamber of Secrets", "Philosopher's Stone"), values = c("skyblue", "salmon1","plum", "red3", "palegoldenrod", "yellow", "peachpuff3"))
+
+
+```
+
+# Sentiment of Unigrams
+
+Three lexicons are contained in the sentiments dataset of the tidytext package, which are **AFINN**, **bing**, and **nrc**. All of the three lexicons are based on unigrams, and these single words are assigned scores for sentiment according to their different categorization. We're going through each of these three lexicons in this section. <br>
+
+```{r, warning=FALSE, message=FALSE}
+
+#get_sentiments("afinn")
+#get_sentiments("nrc")
+#get_sentiments("bing")
+
+```
+
+## nrc Lexicon
+
+The **nrc** lexicon regulates words in a binary fashion (0 or 1, a.k.a no or yes) into ten categories of positive, negative, anger, anticipation, disgust, fear, joy, sadness, surprise, and trust. <br>
+
+*According to the nrc lexicon, most words are ruled as "negative", while the runner-up is "positive", with a difference of roughly 5500 words. And then it's "fear", and "trust", which is about 2000 words shy. In general, there is a stronger negative presence than positive.*
+
+```{r, warning=FALSE, message=FALSE}
+
+nrcfirst <- hp %>%
+  right_join(get_sentiments("nrc")) %>%
+  filter(!is.na(sentiment)) %>%
+  count(sentiment, sort = TRUE)
+
+
+rmarkdown::paged_table(nrcfirst)
+
+```
+
+## AFINN Lexicon
+
+The **AFINN** lexicon maps words with a score ranging from -5 to 5. A negative score indicates negative sentiment and a positive score indicates positive sentiment. 
+
+*From this result, we could see that the words with the highest absolute values of sentiment are mostly negative.*
+
+```{r, warning = FALSE, message=FALSE}
+sentiafinn <- hp %>%
+        group_by(word) %>% 
+ #       mutate(word_count = 1:n(),
+ #              index = word_count %/% 500 + 1) %>% 
+        inner_join(get_sentiments("afinn")) %>%
+        summarise(sentiment = sum(value)) %>%
+  arrange(desc(abs(sentiment)))
+  
+
+rmarkdown::paged_table(sentiafinn)
+
+```
+
+## bing Lexicon
+
+The *bing* lexicon assigns words in a binary fashion into positive and negative. <br>
+<br>
+
+**Overall** <br>
+*We can see that according to "bing", around 68% of all the words are catgeorized as negative.*
+
+```{r}
+
+hp %>%
+  right_join(get_sentiments("bing")) %>%
+  filter(!is.na(sentiment)) %>%
+  count(sentiment, sort = TRUE)
+
+hp %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("plum3", "rosybrown3"),
+                   max.words = 60)
+
+```
+
+**By Book**<br>
+According to "bing", generate how the net sentiment changes as readers progress through each book. For a better output, break up each book by 500 words (the approximate number of words on every two pages) and store them into index accordingly. <br>
+
+*The sentiment shows more variation in all six groups, except for Order of the Phoenix - which shows more negativity throughout the whole book.*
+
+```{r, message = FALSE, warning=FALSE}
+
+hp %>%
+  group_by(book) %>%
+  mutate(word_count = 1:n(),
+               index = word_count %/% 500 + 1) %>% 
+        inner_join(get_sentiments("bing")) %>%
+        count(book, index = index , sentiment) %>%
+        ungroup() %>%
+        spread(sentiment, n, fill = 0) %>%
+        mutate(sentiment = positive - negative,
+               book = factor(book, levels = titles)) %>%
+        ggplot(aes(index, sentiment, fill = book)) +
+          geom_bar(alpha = 0.5, stat = "identity", show.legend = FALSE) +
+          facet_wrap(~ book, ncol = 2, scales = "free_x") +
+  labs(title = "Sentiment Score vs. Reading Progress", subtitle = "based on bing lexicon, by book, grouped by each 500 words", x = "(#words/500)", y = "sentiment score")
+
+```
+
+## Comparison
+
+To see how AFINN, bing, and nrc lexicons lead to different results of the sentiment analysis. It might be helpful to benchmark the results. For a better output, **break up each book by 500 words (the approximate number of words on every two pages)** and store them into index accordingly. The result shows how these lexicons impact the sentiment scores by each book to investigate questions like: is there any book that has similar sentiment scores from the three lexicons?  
+
+*From the result, we could see that nrc produces different sentiment scores, while AFINN and bing might show more similar pattern in categorizing words. However, how much coincidence is factored in this result needs further investigation.*
+
+```{r, warning=FALSE, message=FALSE}
+
+sentiafinn <- hp %>%
+        group_by(book) %>% 
+        mutate(word_count = 1:n(),
+               index = word_count %/% 500 + 1) %>% 
+        inner_join(get_sentiments("afinn")) %>%
+        group_by(book, index) %>%
+        summarise(sentiment = sum(value)) %>%
+        mutate(method = "AFINN")
+
+#sentibing <- hp %>%
+#  group_by(book) %>%
+#  mutate(word_count = 1:n(),
+#                         index = word_count %/% 500 + 1) %>% 
+#                  inner_join(get_sentiments("bing")) %>%
+#                  mutate(method = "Bing")
+
+#sentinrc <- hp %>%
+#  group_by(book) %>% 
+#                  mutate(word_count = 1:n(),
+#                         index = word_count %/% 500 + 1) %>%
+#                  inner_join(get_sentiments("nrc") %>%
+#                                     filter(sentiment %in% c("positive", "negative"))) %>%
+#                  mutate(method = "NRC")
+  
+sentibingnrc <- bind_rows(hp %>%
+                  group_by(book) %>% 
+                  mutate(word_count = 1:n(),
+                         index = word_count %/% 500 + 1) %>% 
+                  inner_join(get_sentiments("bing")) %>%
+                  mutate(method = "bing"),
+                  hp %>%
+                  group_by(book) %>% 
+                  mutate(word_count = 1:n(),
+                         index = word_count %/% 500 + 1) %>%
+                  inner_join(get_sentiments("nrc") %>%
+                                     filter(sentiment %in% c("positive", "negative"))) %>%
+                  mutate(method = "nrc")) %>%
+        count(book, method, index = index , sentiment) %>%
+        ungroup() %>%
+        spread(sentiment, n, fill = 0) %>%
+        mutate(sentiment = positive - negative) %>%
+        select(book, index, method, sentiment)
+
+bind_rows(sentiafinn, 
+          sentibingnrc) %>%
+        ungroup() %>%
+        mutate(book = factor(book, levels = titles)) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_bar(alpha = 0.8, stat = "identity", show.legend = FALSE) +
+  facet_grid(book ~ method) +
+  scale_fill_manual(labels = letters[1:3], values = c("coral3", "darkgoldenrod1","aquamarine4"))+
+  labs(title = "Sentiment Score by Different Lexicons", subtitle = "by book, grouped by every 500 words", x = "(#words/500)", y = "sentiment score")
+
+```
+
+
+# Sentiment of Bigrams
+
+As sentiment analysis might be misleading when a negation word is presented right before the word that is mapped to a sentiment/emotion lexicon word. Some common negation words include, but are limited to “no”, “not”, “doesn’t”, “isn’t”, “wasn’t’,”can’t“,”hardly“,”barely“,”wasn’t“,”can’t“,”hardly“,”barely“,”won’t“,”don’t“,”shouldn’t“,”wouldn’t“,”couldn’t", and etc. Thus, the following analysis aims to see if what words that are previously done in the sentiment analysis might lead to outcome of opposite direction. <br>
+
+## A Table 
+
+The table shows the most used bigrams that start with a negation word.
+
+```{r, warning=FALSE, message=FALSE}
+
+bigrams_separated_negation <- bigrams_separated %>%
+  filter(word1 == "no" | word1 == "not" | word1 == "doesn't" | word1 == "isn't" | word1 == "wasn't" | word1 == "can't" | word1 == "hardly" | word1 == "barely" | word1 == "won't" | word1 == "don't" | word1 == "shouldn't" | word1 == "wouldn't" | word1 == "couldn't") %>%
+  filter(!word2 %in% stop_words$word) %>%
+  count(word1, word2, sort = TRUE)
+
+rmarkdown::paged_table(bigrams_separated_negation)
+
+```
+
+## The (Probably) Falsely Categorized Sentiment
+
+Now, incorporate the bing lexicon again. *Solely from scanning through the first few pages of the table, we could see that most used second words that follow a negation word are categorized as negative. Thus, this might be the cause of negative sentiment of single words being much more of that the positive sentiment.*
+
+```{r, warning=FALSE, message=FALSE}
+
+bingtemp <- get_sentiments("bing")
+
+bigrams_separated_negation2 <- bigrams_separated_negation %>%
+  filter(word1 == "no" | word1 == "not" | word1 == "doesn't" | word1 == "isn't" | word1 == "wasn't" | word1 == "can't" | word1 == "hardly" | word1 == "barely" | word1 == "won't" | word1 == "don't" | word1 == "shouldn't" | word1 == "wouldn't" | word1 == "couldn't") %>%
+  filter(!word2 %in% stop_words$word) %>%
+  inner_join(bingtemp, by = c(word2 = "word")) %>%
+  ungroup()
+
+rmarkdown::paged_table(bigrams_separated_negation2)
+
+```
+
+
+# Sentiment of Sentences
+
+Though tokenizing at the single word level might be useful in some scenarios, but conducting sentiment analysis on a different units of text might be more applicable in the literature word. In the **sentimentr**, there are analysis algorithms that grant sentiment analysis on a sentence level. The following results would show in each book, the net sentiment by chapter and then by sentence. The following analysis is done based on AFINN since the sentiment score is of a laid-out range.
+
+## Harry Potter and The Philosopher's Stone
+
+```{r, warning=FALSE, message=FALSE}
+
+first_sentence <- tibble(chapter = 1:length(philosophers_stone),
+                        text = philosophers_stone) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+first_sentence <- first_sentence %>%
+  group_by(chapter) %>%
+  mutate(sentence_num = 1:n(),
+        index = round(sentence_num / n(), 2)) %>% # to track sentence
+        unnest_tokens(word, sentence) %>%
+        inner_join(get_sentiments("afinn")) %>%
+        group_by(chapter, index) %>%
+        summarise(sentiment = sum(value, na.rm = TRUE)) %>%
+        arrange(desc(sentiment))
+
+ggplot(first_sentence, aes(index, factor(chapter, levels = sort(unique(chapter), decreasing = TRUE)), fill = sentiment)) +
+        geom_tile(color = "white") +
+        scale_fill_gradient2(low = "cadetblue4", mid = "white",
+  high = "darkseagreen", midpoint = 0, space = "Lab", guide = "colourbar", aesthetics = "fill") +
+        scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+        scale_y_discrete(expand = c(0, 0)) +
+        labs(x = "Progress", y = "Chapter") +
+        ggtitle("Sentiment of Harry Potter and The Philosopher's Stone",
+                subtitle = "net sentiment scores, based on AFINN Lexicon") +
+        theme_minimal() +
+        theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.position = "top")
+```
+
+## Harry Potter and The Chamber of Secrets
+
+```{r, warning=FALSE, message=FALSE}
+
+second_sentence <- tibble(chapter = 1:length(chamber_of_secrets),
+                        text = chamber_of_secrets) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+second_sentence <- second_sentence %>%
+  group_by(chapter) %>%
+  mutate(sentence_num = 1:n(),
+        index = round(sentence_num / n(), 2)) %>%
+        unnest_tokens(word, sentence) %>%
+        inner_join(get_sentiments("afinn")) %>%
+        group_by(chapter, index) %>%
+        summarise(sentiment = sum(value, na.rm = TRUE)) %>%
+        arrange(desc(sentiment))
+
+ggplot(second_sentence, aes(index, factor(chapter, levels = sort(unique(chapter), decreasing = TRUE)), fill = sentiment)) +
+        geom_tile(color = "white") +
+        scale_fill_gradient2(low = "cadetblue4", mid = "white",
+  high = "darkseagreen", midpoint = 0, space = "Lab", guide = "colourbar", aesthetics = "fill") +
+        scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+        scale_y_discrete(expand = c(0, 0)) +
+        labs(x = "Progress", y = "Chapter") +
+        ggtitle("Sentiment of Harry Potter and The Chamber of Secrets",
+                subtitle = "net sentiment scores, based on AFINN Lexicon") +
+        theme_minimal() +
+        theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.position = "top")
+```
+
+## Harry Potter and The Prisoner of Azkaban
+
+```{r, warning=FALSE, message=FALSE}
+
+third_sentence <- tibble(chapter = 1:length(prisoner_of_azkaban),
+                        text = prisoner_of_azkaban) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+third_sentence <- third_sentence %>%
+  group_by(chapter) %>%
+  mutate(sentence_num = 1:n(),
+        index = round(sentence_num / n(), 2)) %>%
+        unnest_tokens(word, sentence) %>%
+        inner_join(get_sentiments("afinn")) %>%
+        group_by(chapter, index) %>%
+        summarise(sentiment = sum(value, na.rm = TRUE)) %>%
+        arrange(desc(sentiment))
+
+ggplot(third_sentence, aes(index, factor(chapter, levels = sort(unique(chapter), decreasing = TRUE)), fill = sentiment)) +
+        geom_tile(color = "white") +
+        scale_fill_gradient2(low = "cadetblue4", mid = "white",
+  high = "darkseagreen", midpoint = 0, space = "Lab", guide = "colourbar", aesthetics = "fill") +
+        scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+        scale_y_discrete(expand = c(0, 0)) +
+        labs(x = "Progress", y = "Chapter") +
+        ggtitle("Sentiment of Harry Potter and The Prisoner of Azkaban",
+                subtitle = "net sentiment scores, based on AFINN Lexicon") +
+        theme_minimal() +
+        theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.position = "top")
+```
+
+## Harry Potter and The Goblet of Fire
+
+```{r, warning=FALSE, message=FALSE}
+
+fourth_sentence <- tibble(chapter = 1:length(goblet_of_fire),
+                        text = goblet_of_fire) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+fourth_sentence <- fourth_sentence %>%
+  group_by(chapter) %>%
+  mutate(sentence_num = 1:n(),
+        index = round(sentence_num / n(), 2)) %>%
+        unnest_tokens(word, sentence) %>%
+        inner_join(get_sentiments("afinn")) %>%
+        group_by(chapter, index) %>%
+        summarise(sentiment = sum(value, na.rm = TRUE)) %>%
+        arrange(desc(sentiment))
+
+ggplot(fourth_sentence, aes(index, factor(chapter, levels = sort(unique(chapter), decreasing = TRUE)), fill = sentiment)) +
+        geom_tile(color = "white") +
+        scale_fill_gradient2(low = "cadetblue4", mid = "white",
+  high = "darkseagreen", midpoint = 0, space = "Lab", guide = "colourbar", aesthetics = "fill") +
+        scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+        scale_y_discrete(expand = c(0, 0)) +
+        labs(x = "Progress", y = "Chapter") +
+        ggtitle("Sentiment of Harry Potter and The Goblet of Fire",
+                subtitle = "net sentiment scores, based on AFINN Lexicon") +
+        theme_minimal() +
+        theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.position = "top")
+```
+
+## Harry Potter and The Order of the Phoenix
+
+```{r, warning=FALSE, message=FALSE}
+
+fifth_sentence <- tibble(chapter = 1:length(order_of_the_phoenix),
+                        text = order_of_the_phoenix) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+fifth_sentence <- fifth_sentence %>%
+  group_by(chapter) %>%
+  mutate(sentence_num = 1:n(),
+        index = round(sentence_num / n(), 2)) %>%
+        unnest_tokens(word, sentence) %>%
+        inner_join(get_sentiments("afinn")) %>%
+        group_by(chapter, index) %>%
+        summarise(sentiment = sum(value, na.rm = TRUE)) %>%
+        arrange(desc(sentiment))
+
+ggplot(fifth_sentence, aes(index, factor(chapter, levels = sort(unique(chapter), decreasing = TRUE)), fill = sentiment)) +
+        geom_tile(color = "white") +
+        scale_fill_gradient2(low = "cadetblue4", mid = "white",
+  high = "darkseagreen", midpoint = 0, space = "Lab", guide = "colourbar", aesthetics = "fill") +
+        scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+        scale_y_discrete(expand = c(0, 0)) +
+        labs(x = "Progress", y = "Chapter") +
+        ggtitle("Sentiment of Harry Potter and The Order of the Phoenix",
+                subtitle = "net sentiment scores, based on AFINN Lexicon") +
+        theme_minimal() +
+        theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.position = "top")
+```
+
+## Harry Potter and The Half Blood Prince
+
+```{r, warning=FALSE, message=FALSE}
+
+sixth_sentence <- tibble(chapter = 1:length(half_blood_prince),
+                        text = half_blood_prince) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+sixth_sentence <- sixth_sentence %>%
+  group_by(chapter) %>%
+  mutate(sentence_num = 1:n(),
+        index = round(sentence_num / n(), 2)) %>%
+        unnest_tokens(word, sentence) %>%
+        inner_join(get_sentiments("afinn")) %>%
+        group_by(chapter, index) %>%
+        summarise(sentiment = sum(value, na.rm = TRUE)) %>%
+        arrange(desc(sentiment))
+
+ggplot(sixth_sentence, aes(index, factor(chapter, levels = sort(unique(chapter), decreasing = TRUE)), fill = sentiment)) +
+        geom_tile(color = "white") +
+        scale_fill_gradient2(low = "cadetblue4", mid = "white",
+  high = "darkseagreen", midpoint = 0, space = "Lab", guide = "colourbar", aesthetics = "fill") +
+        scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+        scale_y_discrete(expand = c(0, 0)) +
+        labs(x = "Progress", y = "Chapter") +
+        ggtitle("Sentiment of Harry Potter and The Half Blood Prince",
+                subtitle = "net sentiment scores, based on AFINN Lexicon") +
+        theme_minimal() +
+        theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.position = "top")
+```
+
+## Harry Potter and The Deathly Hallows
+
+```{r, warning=FALSE, message=FALSE}
+
+seven_sentence <- tibble(chapter = 1:length(deathly_hallows),
+                        text = deathly_hallows) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+seven_sentence <- seven_sentence %>%
+  group_by(chapter) %>%
+  mutate(sentence_num = 1:n(),
+        index = round(sentence_num / n(), 2)) %>%
+        unnest_tokens(word, sentence) %>%
+        inner_join(get_sentiments("afinn")) %>%
+        group_by(chapter, index) %>%
+        summarise(sentiment = sum(value, na.rm = TRUE)) %>%
+        arrange(desc(sentiment))
+
+ggplot(seven_sentence, aes(index, factor(chapter, levels = sort(unique(chapter), decreasing = TRUE)), fill = sentiment)) +
+        geom_tile(color = "white") +
+        scale_fill_gradient2(low = "cadetblue4", mid = "white",
+  high = "darkseagreen", midpoint = 0, space = "Lab", guide = "colourbar", aesthetics = "fill") +
+        scale_x_continuous(labels = scales::percent, expand = c(0, 0)) +
+        scale_y_discrete(expand = c(0, 0)) +
+        labs(x = "Progress", y = "Chapter") +
+        ggtitle("Sentiment of Harry Potter and The Deathly Hallows",
+                subtitle = "net sentiment scores, based on AFINN Lexicon") +
+        theme_minimal() +
+        theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              legend.position = "top")
+```
+
+# Sentiment vs. Book Sales
+
+## U.S. First Print Run
+
+*Since sales from the first print run has a lot to do with the series' burgeoning popularity overtime. Thus, it would be fair to compare the sales of first print run among the first three books, and then among the last four books. As the sentiment does not really differ among the first three, we could not really see a pattern nor association here. Among Order of the Phoenix, Half-blood Prince and Goblet of Fire, sentiment seems to have certain effect on the sales: the higher (more positive) of the sentiment score, the higher the sales is.* <br>
+
+*Another way of looking at this first print run sales issue might be that: does the sentiment score of the previous book have impact on the sales of the following book? For example, it might be due to the positivity shown in Half-Blood Prince, that the sales of Deathly Hallows is relatively high. But this might also due to the fact that Deathly Hallows is the highly expected last book in this series.* <br>
+
+```{r, warning=FALSE, message=FALSE}
+
+sentiafinn3 <- hp %>%
+        group_by(book, word) %>% 
+        inner_join(get_sentiments("afinn")) %>%
+        summarise(sentiment = sum(value)) %>%
+  group_by(book) %>%
+  summarise(sentiment = mean(sentiment))
+
+hpbooksales <- read.csv("/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/HPSales.csv")
+
+hpbooksalessenti <- hpbooksales %>%
+  left_join(sentiafinn3)
+
+hpbooksalessenti[1,5] = "-4.427644"
+hpbooksalessenti[2,5] = "-2.202925"
+hpbooksalessenti[4,5] = "-2.950355"
+
+hpbooksalessenti$sentiment <- as.numeric(hpbooksalessenti$sentiment)
+
+hpbooksalessenti %>%
+  ggplot(aes(x = book, y = us_firstrun, fill = sentiment)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient2(low = "deepskyblue3", high = "aliceblue", midpoint = -0.3, aesthetics = "fill") +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "Sentiment vs. U.S. First Print Run", subtitle = "sentiment analysis based on AFINN lexicon", y = "Sales", x = "Book")
+
+```
+
+## UK First Print Run
+
+*In UK, it might be that the Goblet of Fire shows more positivity, so the sales of Order of the Phoenix is relatively higher. Again, the logic of this explanation might be a bit far-fetched since in real life scenarios, many things would have impacted the sales of a certain book in a series.*
+
+```{r, warning = FALSE, message= FALSE}
+
+hpbooksalessenti %>%
+  ggplot(aes(x = book, y = uk_firstrun, fill = sentiment)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient2(low = "deepskyblue3", high = "aliceblue", midpoint = -0.3, aesthetics = "fill") +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "Sentiment vs. UK First Print Run", subtitle = "sentiment analysis based on AFINN lexicon", y = "Sales", x = "Book")
+
+```
+
+## Total Copies Sold Worldwide
+
+*Viewing this issue from the worldwide sales perspective, sentiment of the previous book or the book does not necessarily have anything to do with the book sales.*
+
+```{r, warning = FALSE, message= FALSE}
+
+hpbooksalessenti %>%
+  ggplot(aes(x = book, y = worldwide_sales, fill = sentiment)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient2(low = "deepskyblue3", high = "aliceblue", midpoint = -0.3, aesthetics = "fill") +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "Sentiment vs. Worldwide Sales", subtitle = "sentiment analysis based on AFINN lexicon", y = "Sales", x = "Book")
+
+```
+
+# Sentiment vs. Box Office Worldwide
+
+Note that there is one movie corresponding to one book, except for there are part 1 and part 2 for Harry Potter and the Deathly Hallows. Thus, for this section, the box office corresponding to the last book is calculated as the average of part 1 (960.4 million USD) and part 2 (1.342 billion USD), which is 1.1512 billion USD. <br>
+<br>
+*The result (sort of) shows a relationship that if the average sentiment in each book (based on AFINN sentiment) is higher/positive (in despite of average sentiment for every book is actually negative), the higher the box office will be. However, other factors need to be taken into account, such as the first and the last movies are likely to launch higher box office.*
+
+```{r, warning=FALSE, message=FALSE}
+
+sentiafinn2 <- hp %>%
+        group_by(book, word) %>% 
+ #       mutate(word_count = 1:n(),
+ #              index = word_count %/% 500 + 1) %>% 
+        inner_join(get_sentiments("afinn")) %>%
+        summarise(sentiment = sum(value)) %>%
+  group_by(book) %>%
+  summarise(sentiment = mean(sentiment)) 
+
+
+hpboxoffice <- read.csv("/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/HPBoxOffice.csv")
+
+names(hpboxoffice)[names(hpboxoffice)=="movie"] <- "book"
+
+hpboxofficesenti <- hpboxoffice %>%
+  right_join(sentiafinn2) 
+
+hpboxofficesenti[1,2] = "1151200000"
+hpboxofficesenti[2,2] = "934500000"
+hpboxofficesenti[4,2] = "897100000"
+
+hpboxofficesenti$box_office <- as.numeric(hpboxofficesenti$box_office)
+hpboxofficesenti$sentiment <- as.numeric(hpboxofficesenti$sentiment )
+
+hpboxofficesenti %>%
+  ggplot(aes(x = book, y = box_office, fill = sentiment)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient2(low = "bisque3", high = "bisque1", midpoint = -0.3, aesthetics = "fill") +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "Sentiment vs. Box Office", subtitle = "based on AFINN lexicon", y = "Box Office (USD)", x = "Book/Movie")
+
+```
+
+# Sentiment vs. Film Rating 
+
+Since negativity in text of book might indicate possible frequent presence of strong language, violence, drug abuse, nudity, and etc. in the corresponding movie. Again, since both part 1 and part 2 of Deathly Hallows were given the same film rate, here these two movies are synthesized into one row of entry. <br>
+<br>
+*Here, we could see that sentiment of the book text is sort of associated with the film rates of the corresponding movie. But this result might be due to the fact that the average sentiment scores are not really different from each other among the seven books and thus the eight movies. Also, the lines and scripts of the movies are not necessarily the same of what the book tells; thus solely using the sentiment reflected in the book text to associate it with the film ratings of the movies might not be a fairly logical approach.*
+
+```{r, warning=FALSE, message=FALSE}
+
+hpfilmrating <- read.csv("/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/HPFilmRating.csv")
+
+names(hpfilmrating)[names(hpfilmrating)=="movie"] <- "book"
+
+hpfrsenti <- hpfilmrating %>%
+  right_join(sentiafinn2) 
+
+hpfrsenti[1,2] = "PG-13"
+hpfrsenti[2,2] = "PG-13"
+hpfrsenti[4,2] = "PG-13"
+
+hpfrsenti$film_rate <- as.factor(hpfrsenti$film_rate)
+
+hpfrsenti <- hpfrsenti %>%
+  arrange(desc(sentiment))
+
+names(hpfrsenti)[names(hpfrsenti)=="book"] <- "book/movie"
+
+rmarkdown::paged_table(hpfrsenti)
+
+
+```
+
+# Sentiment vs. Rating (IMDb, Rotten Tomatoes)
+
+It might be interesting to see if there is any relationship between the sentiment of book text and the ratings for the corresponding movies - since more negativity might actually draw more audience (because it is kind of the trend for a while). For the last book, there are two movies, part 1 gets 7.7/10 on IMDb, and 77% on Rotten Tomatoes; part 2 gets 8.1/10 on IMDb, and 96% on Rotten Tomatoes. The numbers used here, in order to map each book to "one" movie, are the averages of the ratings for part 1 and part 2. <br>
+<br>
+
+*From this plot, we could see that the online ratings for the movie do not have certain correlation with the sentiment of the book that it corresponds.*
+
+```{r, warning=FALSE, message=FALSE}
+
+hprating <- read.csv("/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/HPRating.csv")
+
+names(hprating)[names(hprating)=="movie"] <- "book"
+
+hpratingsenti <- hprating %>%
+  right_join(sentiafinn2) 
+
+hpratingsenti[1,2] = "7.9"
+hpratingsenti[2,2] = "7.6"
+hpratingsenti[4,2] = "7.7"
+hpratingsenti[1,3] = "8.65"
+hpratingsenti[2,3] = "8.3"
+hpratingsenti[4,3] = "8.8"
+hpratingsenti[1,4] = "8.275"
+hpratingsenti[2,4] = "7.95"
+hpratingsenti[4,4] = "8.25"
+hpratingsenti[1,5] = "19-Nov-10"
+hpratingsenti[2,5] = "15-Jul-09"
+hpratingsenti[4,5] = "18-Nov-05"
+
+hpratingsenti$imdb <- as.numeric(hpratingsenti$imdb)
+hpratingsenti$rotten_tomatoes <- as.numeric(hpratingsenti$rotten_tomatoes)
+hpratingsenti$avg_two <- as.numeric(hpratingsenti$avg_two)
+hpratingsenti$sentiment <- as.numeric(hpratingsenti$sentiment)
+hpratingsenti$release_date <- as.Date(hpratingsenti$release_date,  "%d-%B-%y")
+
+ggplot(hpratingsenti)+
+  geom_line(aes(x = release_date, y = imdb), color = "azure3") +
+  geom_line(aes(x = release_date, y = rotten_tomatoes), color = "coral2") +
+  geom_line(aes(x = release_date, y = avg_two), color = "cadetblue3") +
+  geom_point(mapping = aes(release_date, imdb, color = sentiment)) +
+  geom_point(mapping = aes(release_date, rotten_tomatoes, color = sentiment)) +
+  geom_point(mapping = aes(release_date, avg_two, color = sentiment)) +
+  scale_color_gradient(low = "gold4", high = "yellow") +
+  theme_bw() +
+  labs(title = "Sentiment vs. Online Ratings for Corresponding HP Movie", x = "Release Date", y = "Ratings(out of 10)")
+
+```
+
+# Topic Modeling
+
+*preparation work*
+
+```{r}
+
+hp7 <- hp2
+
+hp7$id <- seq.int(nrow(hp7))
+
+cleanhp <- hp7 %>%
+  mutate(text = as.character(text),
+         text = str_replace_all(text, "\n", " "),   
+         text = str_replace_all(text, "(\\[.*?\\])", ""),
+         text = str_squish(text), 
+         text = gsub("([a-z])([A-Z])", "\\1 \\2", text), 
+         text = tolower(text), 
+         text = removeWords(text, c("’", stopwords(kind = "en"))), 
+         text = removePunctuation(text), 
+         text = removeNumbers(text),
+         text = textstem::lemmatize_strings(text), 
+         doc_id = id,
+         book = book) %>%
+  select(doc_id, text, book) %>%
+#  anti_join(characterhp) %>%
+  as.data.frame()
+
+hpcorpus = Corpus(DataframeSource(cleanhp))
+
+```
+
+*preparation work (cont.)*
+
+
+```{r}
+
+hpTDM = TermDocumentMatrix(hpcorpus, control = list(weighting =
+                                                              function(x)
+                                                                weightTfIdf(x, normalize =
+                                                                              FALSE)))
+
+inspect(hpTDM)
+
+```
+
+*preparation work (cont.)*
+
+
+```{r}
+
+hpConvert <- as.data.frame(as.matrix(hpTDM))
+
+hpTibble = as_tibble(hpConvert, .name_repair = "universal")
+
+hpTibble <- hpTibble %>%
+  mutate_all(., funs(. + .1))
+
+rownames(hpTibble) <- rownames(hpConvert)
+
+hpNMF <- nmf(hpTibble, 4, seed = 1001)
+
+save(hpNMF, file = "/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/nmfOut.Rata")
+
+load("/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/nmfOut.Rata")
+
+wMatrix = as.data.frame(basis(hpNMF))
+
+head(wMatrix[order(-wMatrix$V1), ], 5)
+head(wMatrix[order(-wMatrix$V2), ], 5)
+head(wMatrix[order(-wMatrix$V3), ], 5)
+head(wMatrix[order(-wMatrix$V4), ], 5)
+
+
+```
+
+*preparation work (cont.)*
+
+
+```{r}
+
+set.seed(1001)
+
+holdoutRows <- sample(1:nrow(hp7), 100, replace = FALSE)
+
+hp_text <- textProcessor(documents = hp7$text[-c(holdoutRows)],
+                          metadata = hp7[-c(holdoutRows), ],
+                          stem = FALSE)
+
+```
+
+*preparation work (cont.)*
+
+```{r}
+
+hp_prep = prepDocuments(documents=hp_text$documents,
+                         vocab = hp_text$vocab,
+                         meta = hp_text$meta)
+
+```
+
+To determine the best number of topics, focus on the semantic coherence and the residuals. Semantic coherence means how well the words hang together – computed from taking a conditional probability score from frequent words; it is essentially a measure of human interpretability. Thus, low residual and high semantic coherence is preferred. **In this case, as k passes 10, the residuals seemingly take a sharp dive as k increases. Thus, choose 10 as the k.**
+
+```{r}
+
+ktest = searchK(documents = hp_prep$documents,
+                vocab = hp_prep$vocab, 
+                K = c(3, 4, 5, 10, 20), verbose = FALSE)
+
+plot(ktest)
+
+```
+
+**From the plot down below, we could see that topic 2 is the most expected topic is topic 2, which contains words like "harry", "ron", and "said". (of course - but a better way to do this might be finding a way to eliminate all words related to main characters, the Hogwarts Houses, and etc. in the first place). The topic that is expected to cover the second most proportion is topic 5, which has words "said", and "harry"and "ron" again. As you move through the ten topics, all contain harry, and come with other main characters' names like hermione and dumbledore!**
+
+```{r}
+
+
+topics10 <- stm(documents = hp_prep$documents,
+               vocab = hp_prep$vocab, seed = 1001,
+               K = 10, verbose = FALSE)
+
+plot(topics10)
+
+```
+
+**Now, see what emerges from the topics in details. FREX words are probably what we should focus on here, since they occur frequently within the topic and are exclusive to that topic. Here, in topic 2: FEEX words are umbridge, parvati, cho, angelina, potions, katie, dobby. Also, the highest probability words are worthy of attention because there are the words with the highest probability of occuring within that topic. Here, under topic 2, highest probability words are said, harry, ron, hermione, just, well, professor. All fairly forseeable.**
+
+```{r}
+
+labelTopics(topics10)
+
+```
+
+**Now, see what text from the book that have higher probabilities of being associated with each topic. After computing this step, the result appears to be a LONG excerption from the book (apparently), thus the output here is hidden.**
+
+```{r}
+
+#findThoughts(topics10, texts = hp_prep$meta$text, n = 1)
+
+
+```
+
+**Next step, since topic models are probablistic, compute he probabilities of each document belonging to a topic.**
+
+```{r}
+
+head(topics10$theta, 15)
+
+```
+
+# Image Detection
+
+*To see how image detection works with some of the most famous scenes from the Harry Potter movies. I pick these three pictures as follows to experiment on.*
+
+## Buckbeak's Flight
+
+--from *Harry Potter and the Prisoner of Azkaban* <br>
+
+<br>
+<style>
+.myimg{ width: 230%;
+        position: initial;
+        top: 38px;
+        margin-left: 1%;
+        margin-right: 8%;}
+</style>
+<a id ='intro'> <img class="myimg" src="https://github.com/katliyx/piccc/raw/master/hp1.jpg"> </a>
+
+<br>
+
+**Lakeside, seashore, volcano are among the highest probability -- not bad!**
+
+```{r, warning=FALSE, message=FALSE}
+
+library(image.darknet)
+
+model <- system.file(package = "image.darknet", "include", "darknet", "cfg", "tiny.cfg")
+
+weights <- system.file(package = "image.darknet", "models", "tiny.weights")
+
+f <- system.file(package="image.darknet", "include", "darknet", "data", "imagenet.shortnames.list")
+
+labels <- readLines(f)
+
+darknet_tiny <- image_darknet_model(type = 'classify', 
+                                    model = model, weights = weights, labels = labels)
+
+x1 <- image_darknet_classify(file = "/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/hp1.jpg", object = darknet_tiny)
+
+x1
+
+```
+
+**Setting the threshold to 0.1 here. It works out pretty well!**
+
+```{r, warning=FALSE, message=FALSE}
+
+yolo_tiny_voc <- image_darknet_model(type = 'detect', 
+                                     model = "tiny-yolo-voc.cfg", 
+                                     weights = system.file(package="image.darknet", 
+                                                           "models", "tiny-yolo-voc.weights"), 
+                                     labels = system.file(package="image.darknet", "include", 
+                                                          "darknet", "data", "voc.names"))
+
+y1 <- image_darknet_detect(file = "/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/hp1.jpg", 
+                          object = yolo_tiny_voc,
+                          threshold = 0.1)
+
+```
+
+<br>
+<style>
+.myimg{ width: 230%;
+        position: initial;
+        top: 38px;
+        margin-left: 1%;
+        margin-right: 8%;}
+</style>
+<a id ='intro'> <img class="myimg" src="https://github.com/katliyx/piccc/raw/master/hp1prediction.png"> </a>
+<br>
+
+
+## Voldemort Vs. Dumbledore
+
+-- from *Harry Potter and the Order of the Phoenix*<br>
+
+<br>
+<style>
+.myimg{ width: 230%;
+        position: initial;
+        top: 38px;
+        margin-left: 1%;
+        margin-right: 8%;}
+</style>
+<a id ='intro'> <img class="myimg" src="https://github.com/katliyx/piccc/raw/master/hp2.jpg"> </a>
+
+<br>
+
+**To be fair, those sparkles really look like a barn spider, caldron, fountain, or volcano. And a space shuttle... probably not that wrong in this case.** 
+
+```{r, warning=FALSE, message=FALSE}
+
+x2 <- image_darknet_classify(file = "/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/hp2.jpg", object = darknet_tiny)
+
+x2
+
+```
+
+**I tried setting the threshold to multiple amounts, but the results did not turn out well. Here is a prediction picture when the threshold is set to 0.07. Since there is definitely not a cow nor a car in this scene, does this have something to do with the dim light?**
+
+```{r, warning=FALSE, message=FALSE}
+
+yolo_tiny_voc <- image_darknet_model(type = 'detect', 
+                                     model = "tiny-yolo-voc.cfg", 
+                                     weights = system.file(package="image.darknet", 
+                                                           "models", "tiny-yolo-voc.weights"), 
+                                     labels = system.file(package="image.darknet", "include", 
+                                                          "darknet", "data", "voc.names"))
+
+y1 <- image_darknet_detect(file = "/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/hp2.jpg", 
+                          object = yolo_tiny_voc,
+                          threshold = 0.07)
+
+```
+
+<br>
+<style>
+.myimg{ width: 230%;
+        position: initial;
+        top: 38px;
+        margin-left: 1%;
+        margin-right: 8%;}
+</style>
+<a id ='intro'> <img class="myimg" src="https://github.com/katliyx/piccc/raw/master/hp2prediction.png"> </a>
+<br>
+
+
+
+## The Patronus
+
+-- from *Harry Potter and the Prisoner of Azkaban*<br>
+
+<br>
+<style>
+.myimg{ width: 230%;
+        position: initial;
+        top: 38px;
+        margin-left: 1%;
+        margin-right: 8%;}
+</style>
+<a id ='intro'> <img class="myimg" src="https://github.com/katliyx/piccc/raw/master/hp3.jpg"> </a>
+
+<br>
+
+**The image detection is not really working well here. Reasons to be discovered later on.**
+
+```{r, warning=FALSE, message=FALSE}
+
+x3 <- image_darknet_classify(file = "/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/hp3.jpg", object = darknet_tiny)
+
+x3
+```
+
+**Again, detection on this image is not working really well. And again, probably has something to do with the low light and dark tone. Down below is the prediction image when the threshold's set to 0.15.**
+
+```{r, warning=FALSE, message=FALSE}
+
+yolo_tiny_voc <- image_darknet_model(type = 'detect', 
+                                     model = "tiny-yolo-voc.cfg", 
+                                     weights = system.file(package="image.darknet", 
+                                                           "models", "tiny-yolo-voc.weights"), 
+                                     labels = system.file(package="image.darknet", "include", 
+                                                          "darknet", "data", "voc.names"))
+
+y1 <- image_darknet_detect(file = "/Users/katliyx/Documents/SPRING2020/ITAO70250-Unstructured/Homework/HW3/hp3.jpg", 
+                          object = yolo_tiny_voc,
+                          threshold = 0.15)
+
+```
+
+<br>
+<style>
+.myimg{ width: 230%;
+        position: initial;
+        top: 38px;
+        margin-left: 1%;
+        margin-right: 8%;}
+</style>
+<a id ='intro'> <img class="myimg" src="https://github.com/katliyx/piccc/raw/master/hp3prediction.png"> </a>
+<br>
+
+# Takeaway & Looking Forward
+
+While sentiment analysis on single words might appear useful in some scenarios, this is not likely to be the case for literature, at least not for the Harry Potter series. As we proceed through the analysis, we could see that through single word sentiment analysis, negativity basically triumphs in all seven books. However, taking in the issue of negation words by conducting sentiment analysis of bigrams, we could see that the single word sentiment analysis might be misleading. From the sentiment analysis on the whole sentences, this flaw of single word sentiment becomes more pronounced.
+
+Also, from the comparison of the results of sentiment analysis based on AFINN, bing, and nrc lexicons, we could see that they are not necessarily identical to each other. The differences are deeply rooted in the logic hidden behind each lexicon. 
+
+Thus, the accuracy of sentiment analysis is largely dependent on the methodology chosen. Everything should probably be done based on context. Further, more investigation on the relationship between analysis on unigrams, larger units of text, and sentences is needed.
+
+As for the topic modeling and image detection - I've had fun and want to discover more image detection technology used on pictures with darker tones and lower light. 
+
+Lastly, as I created my own stop_words dictionary to eliminate the expected frequently used words like the main characters, the Hogwarts House names, and etc. I want to find better ways so as terms like, for example, "harry's", could be eliminated as well. 
+
+To be continued. 
+
+
+<style>
+.myimg{ width: 230%;
+        position: initial;
+        top: 38px;
+        margin-left: 1%;
+        margin-right: 8%;}
+</style>
+<a id ='intro'> <img class="myimg" src="https://github.com/katliyx/piccc/raw/master/hpoutro.gif"> </a>
+
